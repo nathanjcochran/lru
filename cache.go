@@ -1,4 +1,4 @@
-package cache
+package lru
 
 import (
 	"errors"
@@ -296,7 +296,7 @@ func (c *cache) handleExpirations() time.Duration {
 
 		// Get the item that expires next
 		e := c.expBack()
-		if e == nil {
+		if e == &c.expRoot {
 			// If there are no items in the cache, wait as long as it would
 			// take for an item to expire before checking again
 			c.lock.Unlock()
@@ -397,7 +397,7 @@ func (c *cache) handleUpdate(key interface{}) {
 
 func (c *cache) evict() {
 	e := c.evtBack()
-	if e != nil {
+	if e != &c.evtRoot {
 		c.remove(e)
 		if c.onEvict != nil {
 			c.onEvict(e.key, e.val)
@@ -412,16 +412,10 @@ func (c *cache) remove(e *entry) {
 }
 
 func (c *cache) evtBack() *entry {
-	if c.evtRoot.evtPrev == &c.evtRoot {
-		return nil
-	}
 	return c.evtRoot.evtPrev
 }
 
 func (c *cache) expBack() *entry {
-	if c.expRoot.expPrev == &c.expRoot {
-		return nil
-	}
 	return c.expRoot.expPrev
 }
 

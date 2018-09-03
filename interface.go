@@ -1,4 +1,4 @@
-package cache
+package lru
 
 type Cache interface {
 	// Adds a value to the cache, returns true if an eviction
