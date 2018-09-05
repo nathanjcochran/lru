@@ -6,6 +6,12 @@ import (
 	"time"
 )
 
+const (
+	DefaultSize      = 128
+	DefaultTTL       = time.Hour
+	DefaultTTLMargin = time.Second
+)
+
 type status int8
 
 const (
@@ -117,9 +123,9 @@ func SetUpdateFunc(update UpdateFunc) option {
 
 func NewCache(options ...option) (*cache, error) {
 	c := &cache{
-		size:      128,
-		ttl:       time.Hour,
-		ttlMargin: time.Second,
+		size:      DefaultSize,
+		ttl:       DefaultTTL,
+		ttlMargin: DefaultTTLMargin,
 		items:     map[interface{}]*entry{},
 		lock:      &sync.RWMutex{},
 		quitChan:  make(chan struct{}),
