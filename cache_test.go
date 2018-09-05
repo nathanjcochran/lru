@@ -7,26 +7,58 @@ import (
 	"github.com/nathanjcochran/lru"
 )
 
+func expectEviction(expected, actual bool, t *testing.T) {
+	if actual != expected {
+		t.Errorf("Expected eviction: %t. Actual: %t", expected, actual)
+	}
+}
+
+func expectKeys(expected, actual []interface{}, t *testing.T) {
+	if !reflect.DeepEqual(actual, expected) {
+		t.Errorf("Expected keys: %v. Actual: %v", expected, actual)
+	}
+}
+
+func expectExists(expected, actual bool, t *testing.T) {
+	if actual != expected {
+		t.Errorf("Expected entry to exist: %t. Actual: %t", expected, actual)
+	}
+}
+
+func expectValue(expected, actual interface{}, t *testing.T) {
+	if actual != expected {
+		t.Errorf("Expected value: %s. Actual: %s", expected, actual)
+	}
+}
+
+func expectLen(expected, actual int, t *testing.T) {
+	if actual != expected {
+		t.Errorf("Expected length: %d. Actual: %d", expected, actual)
+	}
+}
+
 func TestAdd(t *testing.T) {
 	cache, err := lru.NewCache()
 	if err != nil {
 		t.Fatalf("Error creating cache: %s", err)
 	}
 
-	if eviction := cache.Add("key1", "val1"); eviction {
-		t.Errorf("Expected eviction: false. Actual: %t", eviction)
-	}
+	eviction := cache.Add("key1", "val1")
+	expectEviction(false, eviction, t)
 
-	expectedKeys := []interface{}{"key1"}
-	if keys := cache.Keys(); !reflect.DeepEqual(keys, expectedKeys) {
-		t.Errorf("Expected keys: %v. Actual: %v", expectedKeys, keys)
-	}
+	eviction = cache.Add("key2", "val2")
+	expectEviction(false, eviction, t)
 
-	if actual, ok := cache.Peek("key1"); !ok {
-		t.Errorf("Expected item to exist in cache")
-	} else if actual != "val1" {
-		t.Errorf("Expected item: %s. Actual: %s", "val2", actual)
-	}
+	keys := cache.Keys()
+	expectKeys([]interface{}{"key1", "key2"}, keys, t)
+
+	val, ok := cache.Peek("key1")
+	expectExists(true, ok, t)
+	expectValue("val1", val, t)
+
+	val, ok = cache.Peek("key2")
+	expectExists(true, ok, t)
+	expectValue("val2", val, t)
 }
 
 func TestAddExisting(t *testing.T) {
@@ -35,76 +67,68 @@ func TestAddExisting(t *testing.T) {
 		t.Fatalf("Error creating cache: %s", err)
 	}
 
-	if eviction := cache.Add("key1", "val1"); eviction {
-		t.Errorf("Expected eviction: false. Actual: %t", eviction)
-	}
+	eviction := cache.Add("key1", "val1")
+	expectEviction(false, eviction, t)
 
-	if eviction := cache.Add("key1", "val2"); eviction {
-		t.Errorf("Expected eviction: false. Actual: %t", eviction)
-	}
+	eviction = cache.Add("key1", "val2")
+	expectEviction(false, eviction, t)
 
-	expectedKeys := []interface{}{"key1"}
-	if keys := cache.Keys(); !reflect.DeepEqual(keys, expectedKeys) {
-		t.Errorf("Expected keys: %v. Actual: %v", expectedKeys, keys)
-	}
+	keys := cache.Keys()
+	expectKeys([]interface{}{"key1"}, keys, t)
 
-	if actual, ok := cache.Peek("key1"); !ok {
-		t.Errorf("Expected item to exist in cache")
-	} else if actual != "val2" {
-		t.Errorf("Expected item: %s. Actual: %s", "val2", actual)
-	}
+	val, ok := cache.Peek("key1")
+	expectExists(true, ok, t)
+	expectValue("val2", val, t)
+
 }
 
 func TestAddEvict(t *testing.T) {
-	cache, err := lru.NewCache(lru.SetSize(2))
+	cache, err := lru.NewCache(lru.SetSize(2)) // Third addition will cause eviction
 	if err != nil {
 		t.Fatalf("Error creating cache: %s", err)
 	}
 
-	if eviction := cache.Add("key1", "value1"); eviction {
-		t.Errorf("Expected eviction: false. Actual: %t", eviction)
-	}
+	eviction := cache.Add("key1", "val1")
+	expectEviction(false, eviction, t)
 
-	if eviction := cache.Add("key2", "value2"); eviction {
-		t.Errorf("Expected eviction: false. Actual: %t", eviction)
-	}
+	eviction = cache.Add("key2", "val2")
+	expectEviction(false, eviction, t)
 
-	if eviction := cache.Add("key3", "value3"); !eviction {
-		t.Errorf("Expected eviction: true. Actual: %t", eviction)
-	}
+	eviction = cache.Add("key3", "val3")
+	expectEviction(true, eviction, t)
 
-	expectedKeys := []interface{}{"key2", "key3"}
-	if keys := cache.Keys(); !reflect.DeepEqual(keys, expectedKeys) {
-		t.Errorf("Expected keys: %v. Actual: %v", expectedKeys, keys)
-	}
+	keys := cache.Keys()
+	expectKeys([]interface{}{"key2", "key3"}, keys, t)
+
+	val, ok := cache.Peek("key1")
+	expectExists(false, ok, t)
+	expectValue(nil, val, t)
 }
 
 func TestAddExistingEvict(t *testing.T) {
-	cache, err := lru.NewCache(lru.SetSize(2))
+	cache, err := lru.NewCache(lru.SetSize(2)) // Third addition will cause eviction
 	if err != nil {
 		t.Fatalf("Error creating cache: %s", err)
 	}
 
-	if eviction := cache.Add("key1", "value1"); eviction {
-		t.Errorf("Expected eviction: false. Actual: %t", eviction)
-	}
+	eviction := cache.Add("key1", "val1")
+	expectEviction(false, eviction, t)
 
-	if eviction := cache.Add("key2", "value2"); eviction {
-		t.Errorf("Expected eviction: false. Actual: %t", eviction)
-	}
+	eviction = cache.Add("key2", "val2")
+	expectEviction(false, eviction, t)
 
-	if eviction := cache.Add("key1", "value3"); eviction {
-		t.Errorf("Expected eviction: false. Actual: %t", eviction)
-	}
+	eviction = cache.Add("key1", "val1")
+	expectEviction(false, eviction, t)
 
-	if eviction := cache.Add("key3", "value4"); !eviction {
-		t.Errorf("Expected eviction: true. Actual: %t", eviction)
-	}
+	eviction = cache.Add("key3", "val3")
+	expectEviction(true, eviction, t)
 
-	expectedKeys := []interface{}{"key1", "key3"}
-	if keys := cache.Keys(); !reflect.DeepEqual(keys, expectedKeys) {
-		t.Errorf("Expected keys: %v. Actual: %v", expectedKeys, keys)
-	}
+	keys := cache.Keys()
+	expectKeys([]interface{}{"key1", "key3"}, keys, t)
+
+	val, ok := cache.Peek("key2")
+	expectExists(false, ok, t)
+	expectValue(nil, val, t)
 }
 
 func TestGet(t *testing.T) {
@@ -113,23 +137,16 @@ func TestGet(t *testing.T) {
 		t.Fatalf("Error creating cache: %s", err)
 	}
 
-	var (
-		key = "key1"
-		val = "val1"
-	)
-	if actual, ok := cache.Get(key); ok {
-		t.Errorf("Expected item to exist: false. Actual: %t", ok)
-	} else if actual != nil {
-		t.Errorf("Expected item: nil. Actual: %s", actual)
-	}
+	val, ok := cache.Get("key1")
+	expectExists(false, ok, t)
+	expectValue(nil, val, t)
 
-	cache.Add(key, val)
+	eviction := cache.Add("key1", "val1")
+	expectEviction(false, eviction, t)
 
-	if actual, ok := cache.Get(key); !ok {
-		t.Errorf("Expected item to exist: true. Actual: %t", ok)
-	} else if actual != val {
-		t.Errorf("Expected item: %s. Actual: %s", val, actual)
-	}
+	val, ok = cache.Get("key1")
+	expectExists(true, ok, t)
+	expectValue("val1", val, t)
 }
 
 func TestGetEvict(t *testing.T) {
@@ -138,16 +155,21 @@ func TestGetEvict(t *testing.T) {
 		t.Fatalf("Error creating cache: %s", err)
 	}
 
-	cache.Add("key1", "value1")
-	cache.Add("key2", "value2")
-	cache.Get("key1")
-	cache.Add("key3", "value3")
+	eviction := cache.Add("key1", "val1")
+	expectEviction(false, eviction, t)
 
-	expected := []interface{}{"key1", "key3"}
+	eviction = cache.Add("key2", "val2")
+	expectEviction(false, eviction, t)
+
+	val, ok := cache.Get("key1")
+	expectExists(true, ok, t)
+	expectValue("val1", val, t)
+
+	eviction = cache.Add("key3", "val3")
+	expectEviction(true, eviction, t)
+
 	keys := cache.Keys()
-	if !reflect.DeepEqual(keys, expected) {
-		t.Errorf("Expected keys: %v. Actual: %v", expected, keys)
-	}
+	expectKeys([]interface{}{"key1", "key3"}, keys, t)
 }
 
 func TestPeek(t *testing.T) {
@@ -156,23 +178,16 @@ func TestPeek(t *testing.T) {
 		t.Fatalf("Error creating cache: %s", err)
 	}
 
-	var (
-		key = "key"
-		val = "value"
-	)
-	if actual, ok := cache.Peek(key); ok {
-		t.Errorf("Expected item exist: false. Actual: %t", actual)
-	} else if actual != nil {
-		t.Errorf("Expected item: nil. Actual: %s", actual)
-	}
+	val, ok := cache.Peek("key1")
+	expectExists(false, ok, t)
+	expectValue(nil, val, t)
 
-	cache.Add(key, val)
+	eviction := cache.Add("key1", "val1")
+	expectEviction(false, eviction, t)
 
-	if actual, ok := cache.Peek(key); !ok {
-		t.Errorf("Expected item to exist: true. Actual: %t", ok)
-	} else if actual != val {
-		t.Errorf("Expected item: %s. Actual: %s", val, actual)
-	}
+	val, ok = cache.Peek("key1")
+	expectExists(true, ok, t)
+	expectValue("val1", val, t)
 }
 
 func TestContains(t *testing.T) {
@@ -181,19 +196,14 @@ func TestContains(t *testing.T) {
 		t.Fatalf("Error creating cache: %s", err)
 	}
 
-	var (
-		key = "key"
-		val = "value"
-	)
-	if ok := cache.Contains(key); ok {
-		t.Errorf("Expected item exist: false. Actual: %t", ok)
-	}
+	ok := cache.Contains("key1")
+	expectExists(false, ok, t)
 
-	cache.Add(key, val)
+	eviction := cache.Add("key1", "val1")
+	expectEviction(false, eviction, t)
 
-	if ok := cache.Contains(key); !ok {
-		t.Errorf("Expected item exist: true. Actual: %t", ok)
-	}
+	ok = cache.Contains("key1")
+	expectExists(true, ok, t)
 }
 
 func TestRemove(t *testing.T) {
@@ -202,25 +212,18 @@ func TestRemove(t *testing.T) {
 		t.Fatalf("Error creating cache: %s", err)
 	}
 
-	var (
-		key = "key"
-		val = "value"
-	)
-	if ok := cache.Remove(key); ok {
-		t.Errorf("Expected item to exist: false. Actual: %t", ok)
-	}
+	ok := cache.Remove("key1")
+	expectExists(false, ok, t)
 
-	cache.Add(key, val)
+	eviction := cache.Add("key1", "val1")
+	expectEviction(false, eviction, t)
 
-	if ok := cache.Remove(key); !ok {
-		t.Errorf("Expected item to exist: false. Actual: %t", ok)
-	}
+	ok = cache.Remove("key1")
+	expectExists(true, ok, t)
 
-	if actual, ok := cache.Peek(key); ok {
-		t.Errorf("Expected item to exist: false. Actual: %t", actual)
-	} else if actual != nil {
-		t.Errorf("Expected item: nil. Actual: %s", actual)
-	}
+	val, ok := cache.Peek("key1")
+	expectExists(false, ok, t)
+	expectValue(nil, val, t)
 }
 
 func TestKeys(t *testing.T) {
@@ -229,62 +232,70 @@ func TestKeys(t *testing.T) {
 		t.Fatalf("Error creating cache: %s", err)
 	}
 
-	expectedKeys := []interface{}{}
-	if keys := cache.Keys(); !reflect.DeepEqual(keys, expectedKeys) {
-		t.Errorf("Expected keys: %v. Actual: %v", expectedKeys, keys)
-	}
+	keys := cache.Keys()
+	expectKeys([]interface{}{}, keys, t)
 
-	cache.Add("key1", "value1")
-	expectedKeys = []interface{}{"key1"}
-	if keys := cache.Keys(); !reflect.DeepEqual(keys, expectedKeys) {
-		t.Errorf("Expected keys: %v. Actual: %v", expectedKeys, keys)
-	}
+	eviction := cache.Add("key1", "val1")
+	expectEviction(false, eviction, t)
 
-	cache.Add("key1", "value1")
-	expectedKeys = []interface{}{"key1"}
-	if keys := cache.Keys(); !reflect.DeepEqual(keys, expectedKeys) {
-		t.Errorf("Expected keys: %v. Actual: %v", expectedKeys, keys)
-	}
+	keys = cache.Keys()
+	expectKeys([]interface{}{"key1"}, keys, t)
 
-	cache.Add("key2", "value2")
-	cache.Add("key3", "value3")
-	cache.Add("key4", "value4")
-	cache.Add("key5", "value5")
-	expectedKeys = []interface{}{"key1", "key2", "key3", "key4", "key5"}
-	if keys := cache.Keys(); !reflect.DeepEqual(keys, expectedKeys) {
-		t.Errorf("Expected keys: %v. Actual: %v", expectedKeys, keys)
-	}
+	eviction = cache.Add("key1", "val1")
+	expectEviction(false, eviction, t)
 
-	cache.Get("key5")
-	cache.Get("key4")
-	cache.Get("key3")
-	cache.Get("key2")
-	cache.Get("key1")
-	expectedKeys = []interface{}{"key5", "key4", "key3", "key2", "key1"}
-	if keys := cache.Keys(); !reflect.DeepEqual(keys, expectedKeys) {
-		t.Errorf("Expected keys: %v. Actual: %v", expectedKeys, keys)
-	}
+	keys = cache.Keys()
+	expectKeys([]interface{}{"key1"}, keys, t)
 
-	cache.Remove("key1")
-	expectedKeys = []interface{}{"key5", "key4", "key3", "key2"}
-	if keys := cache.Keys(); !reflect.DeepEqual(keys, expectedKeys) {
-		t.Errorf("Expected keys: %v. Actual: %v", expectedKeys, keys)
-	}
+	eviction = cache.Add("key2", "val2")
+	expectEviction(false, eviction, t)
 
-	cache.Remove("key1")
-	expectedKeys = []interface{}{"key5", "key4", "key3", "key2"}
-	if keys := cache.Keys(); !reflect.DeepEqual(keys, expectedKeys) {
-		t.Errorf("Expected keys: %v. Actual: %v", expectedKeys, keys)
-	}
+	keys = cache.Keys()
+	expectKeys([]interface{}{"key1", "key2"}, keys, t)
 
-	cache.Remove("key2")
-	cache.Remove("key3")
-	cache.Remove("key4")
-	cache.Remove("key5")
-	expectedKeys = []interface{}{}
-	if keys := cache.Keys(); !reflect.DeepEqual(keys, expectedKeys) {
-		t.Errorf("Expected keys: %v. Actual: %v", expectedKeys, keys)
-	}
+	eviction = cache.Add("key3", "val3")
+	expectEviction(false, eviction, t)
+
+	keys = cache.Keys()
+	expectKeys([]interface{}{"key1", "key2", "key3"}, keys, t)
+
+	val, ok := cache.Get("key1")
+	expectExists(true, ok, t)
+	expectValue("val1", val, t)
+
+	keys = cache.Keys()
+	expectKeys([]interface{}{"key2", "key3", "key1"}, keys, t)
+
+	val, ok = cache.Get("key3")
+	expectExists(true, ok, t)
+	expectValue("val3", val, t)
+
+	keys = cache.Keys()
+	expectKeys([]interface{}{"key2", "key1", "key3"}, keys, t)
+
+	ok = cache.Remove("key1")
+	expectExists(true, ok, t)
+
+	keys = cache.Keys()
+	expectKeys([]interface{}{"key2", "key3"}, keys, t)
+
+	ok = cache.Remove("key1")
+	expectExists(false, ok, t)
+
+	keys = cache.Keys()
+	expectKeys([]interface{}{"key2", "key3"}, keys, t)
+
+	ok = cache.Remove("key2")
+	expectExists(true, ok, t)
+
+	keys = cache.Keys()
+	expectKeys([]interface{}{"key3"}, keys, t)
+
+	ok = cache.Remove("key3")
+	expectExists(true, ok, t)
+
+	keys = cache.Keys()
+	expectKeys([]interface{}{}, keys, t)
 }
 
 func TestLen(t *testing.T) {
@@ -293,43 +304,67 @@ func TestLen(t *testing.T) {
 		t.Fatalf("Error creating cache: %s", err)
 	}
 
-	if size := cache.Len(); size != 0 {
-		t.Errorf("Expected size: 0. Actual: %d", size)
-	}
+	l := cache.Len()
+	expectLen(0, l, t)
 
-	cache.Add("key1", "value1")
-	if size := cache.Len(); size != 1 {
-		t.Errorf("Expected size: 1. Actual: %d", size)
-	}
+	cache.Add("key1", "val1")
 
-	cache.Add("key1", "value1")
-	if size := cache.Len(); size != 1 {
-		t.Errorf("Expected size: 1. Actual: %d", size)
-	}
+	l = cache.Len()
+	expectLen(1, l, t)
 
-	cache.Add("key2", "value2")
-	cache.Add("key3", "value3")
-	cache.Add("key4", "value4")
-	cache.Add("key5", "value5")
-	if size := cache.Len(); size != 5 {
-		t.Errorf("Expected size: 5. Actual: %d", size)
-	}
+	eviction := cache.Add("key1", "val1")
+	expectEviction(false, eviction, t)
 
-	cache.Remove("key1")
-	if size := cache.Len(); size != 4 {
-		t.Errorf("Expected size: 4. Actual: %d", size)
-	}
+	l = cache.Len()
+	expectLen(1, l, t)
 
-	cache.Remove("key1")
-	if size := cache.Len(); size != 4 {
-		t.Errorf("Expected size: 4. Actual: %d", size)
-	}
+	eviction = cache.Add("key2", "val2")
+	expectEviction(false, eviction, t)
 
-	cache.Remove("key2")
-	cache.Remove("key3")
-	cache.Remove("key4")
-	cache.Remove("key5")
-	if size := cache.Len(); size != 0 {
-		t.Errorf("Expected size: 0. Actual: %d", size)
-	}
+	l = cache.Len()
+	expectLen(2, l, t)
+
+	eviction = cache.Add("key3", "val3")
+	expectEviction(false, eviction, t)
+
+	l = cache.Len()
+	expectLen(3, l, t)
+
+	val, ok := cache.Get("key1")
+	expectExists(true, ok, t)
+	expectValue("val1", val, t)
+
+	l = cache.Len()
+	expectLen(3, l, t)
+
+	val, ok = cache.Get("key3")
+	expectExists(true, ok, t)
+	expectValue("val3", val, t)
+
+	l = cache.Len()
+	expectLen(3, l, t)
+
+	ok = cache.Remove("key1")
+	expectExists(true, ok, t)
+
+	l = cache.Len()
+	expectLen(2, l, t)
+
+	ok = cache.Remove("key1")
+	expectExists(false, ok, t)
+
+	l = cache.Len()
+	expectLen(2, l, t)
+
+	ok = cache.Remove("key2")
+	expectExists(true, ok, t)
+
+	l = cache.Len()
+	expectLen(1, l, t)
+
+	ok = cache.Remove("key3")
+	expectExists(true, ok, t)
+
+	l = cache.Len()
+	expectLen(0, l, t)
 }
