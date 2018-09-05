@@ -1,6 +1,6 @@
 package lru
 
-type Cache interface {
+type Interface interface {
 	// Adds a value to the cache, returns true if an eviction
 	// occurred and updates the "recently used"-ness of the key.
 	Add(key, value interface{}) bool

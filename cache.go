@@ -12,10 +12,10 @@ const (
 	DefaultTTLMargin = time.Second
 )
 
-type status int8
+type Status int8
 
 const (
-	Update status = iota
+	Update Status = iota
 	Pass
 	Remove
 )
@@ -32,16 +32,16 @@ func (e *entry) isExpired() bool {
 	return e.expiration.Before(time.Now())
 }
 
-type Callback func(key interface{}, value interface{})
+type Callback func(key, value interface{})
 
 // UpdateFunc is called when a cache entry expires, and can return an
 // updated version to replace the expired entry in the cache.
-type UpdateFunc func(key interface{}) (newVal interface{}, status status)
+type UpdateFunc func(key interface{}) (newVal interface{}, status Status)
 
-// cache is a thread-safe fixed size LRU cache with a worker goroutine
+// Cache is a thread-safe fixed size LRU cache with a worker goroutine
 // that checks for expired items and queues updates, which are processed
 // out-of-band via separate worker goroutines.
-type cache struct {
+type Cache struct {
 	size         int
 	ttl          time.Duration
 	ttlMargin    time.Duration
@@ -60,69 +60,69 @@ type cache struct {
 	doneChan     chan struct{}
 }
 
-var _ Cache = &cache{}
+var _ Interface = &Cache{}
 
 // TODO: Updates for different types of items in a single cache?
 //			Complicated because of race conditions re: update queue and update func
 
-type option func(c *cache)
+type option func(c *Cache)
 
 func SetSize(size int) option {
-	return func(c *cache) {
+	return func(c *Cache) {
 		c.size = size
 	}
 }
 
 func SetTTL(ttl time.Duration) option {
-	return func(c *cache) {
+	return func(c *Cache) {
 		c.ttl = ttl
 	}
 }
 
 func SetTTLMargin(ttlMargin time.Duration) option {
-	return func(c *cache) {
+	return func(c *Cache) {
 		c.ttlMargin = ttlMargin
 	}
 }
 
 func SetWorkers(workers int) option {
-	return func(c *cache) {
+	return func(c *Cache) {
 		c.workers = workers
 	}
 }
 
 func SetBufferSize(bufSize int) option {
-	return func(c *cache) {
+	return func(c *Cache) {
 		c.bufSize = bufSize
 	}
 }
 
 func SetOnEvict(onEvict Callback) option {
-	return func(c *cache) {
+	return func(c *Cache) {
 		c.onEvict = onEvict
 	}
 }
 
 func SetOnExpire(onExpire Callback) option {
-	return func(c *cache) {
+	return func(c *Cache) {
 		c.onExpire = onExpire
 	}
 }
 
 func SetOnBufferFull(onBufferFull Callback) option {
-	return func(c *cache) {
+	return func(c *Cache) {
 		c.onBufferFull = onBufferFull
 	}
 }
 
 func SetUpdateFunc(update UpdateFunc) option {
-	return func(c *cache) {
+	return func(c *Cache) {
 		c.update = update
 	}
 }
 
-func NewCache(options ...option) (*cache, error) {
-	c := &cache{
+func NewCache(options ...option) (*Cache, error) {
+	c := &Cache{
 		size:      DefaultSize,
 		ttl:       DefaultTTL,
 		ttlMargin: DefaultTTLMargin,
@@ -164,7 +164,7 @@ func NewCache(options ...option) (*cache, error) {
 	return c, nil
 }
 
-func (c *cache) Add(key, val interface{}) (evicted bool) {
+func (c *Cache) Add(key, val interface{}) (evicted bool) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -196,7 +196,7 @@ func (c *cache) Add(key, val interface{}) (evicted bool) {
 }
 
 // Get looks up a key's value from the cache.
-func (c *cache) Get(key interface{}) (val interface{}, ok bool) {
+func (c *Cache) Get(key interface{}) (val interface{}, ok bool) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -207,7 +207,7 @@ func (c *cache) Get(key interface{}) (val interface{}, ok bool) {
 	return nil, false
 }
 
-func (c *cache) Contains(key interface{}) (ok bool) {
+func (c *Cache) Contains(key interface{}) (ok bool) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
@@ -217,7 +217,7 @@ func (c *cache) Contains(key interface{}) (ok bool) {
 	return false
 }
 
-func (c *cache) Peek(key interface{}) (val interface{}, ok bool) {
+func (c *Cache) Peek(key interface{}) (val interface{}, ok bool) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
@@ -227,7 +227,7 @@ func (c *cache) Peek(key interface{}) (val interface{}, ok bool) {
 	return nil, false
 }
 
-func (c *cache) Remove(key interface{}) (ok bool) {
+func (c *Cache) Remove(key interface{}) (ok bool) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -238,7 +238,7 @@ func (c *cache) Remove(key interface{}) (ok bool) {
 	return false
 }
 
-func (c *cache) Keys() []interface{} {
+func (c *Cache) Keys() []interface{} {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
@@ -251,14 +251,14 @@ func (c *cache) Keys() []interface{} {
 	return keys
 }
 
-func (c *cache) Len() int {
+func (c *Cache) Len() int {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
 	return len(c.items)
 }
 
-func (c *cache) Purge() {
+func (c *Cache) Purge() {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -273,14 +273,14 @@ func (c *cache) Purge() {
 
 // Stops all worker goroutines. It is not safe to use the cache after a call
 // to Stop. Does not purge the cache or release objects from memory.
-func (c *cache) Stop() {
+func (c *Cache) Stop() {
 	close(c.quitChan)
 	for i := 0; i < c.workers+1; i++ {
 		<-c.doneChan
 	}
 }
 
-func (c *cache) expirationWorker() {
+func (c *Cache) expirationWorker() {
 	timer := time.NewTimer(c.ttl)
 	for {
 		select {
@@ -295,7 +295,7 @@ func (c *cache) expirationWorker() {
 	}
 }
 
-func (c *cache) handleExpirations() time.Duration {
+func (c *Cache) handleExpirations() time.Duration {
 	for {
 		now := time.Now()
 		c.lock.Lock()
@@ -345,22 +345,22 @@ func (c *cache) handleExpirations() time.Duration {
 
 		// Queue the update for a worker goroutine to pick up
 		if c.onBufferFull == nil {
-			c.updateChan <- e
+			c.updateChan <- e.key
 			continue
 		}
 
 		select {
-		case c.updateChan <- e:
+		case c.updateChan <- e.key:
 		default:
 			// Inform user that buffer is full via callback, then
 			// go back to blocking on send
 			c.onBufferFull(e.key, e.val)
-			c.updateChan <- e
+			c.updateChan <- e.key
 		}
 	}
 }
 
-func (c *cache) updateWorker() {
+func (c *Cache) updateWorker() {
 	for {
 		select {
 		case key := <-c.updateChan:
@@ -372,7 +372,7 @@ func (c *cache) updateWorker() {
 	}
 }
 
-func (c *cache) handleUpdate(key interface{}) {
+func (c *Cache) handleUpdate(key interface{}) {
 	// Call user-provided update function:
 	newVal, status := c.update(key)
 
@@ -401,7 +401,7 @@ func (c *cache) handleUpdate(key interface{}) {
 	}
 }
 
-func (c *cache) evict() {
+func (c *Cache) evict() {
 	e := c.evtBack()
 	if e != &c.evtRoot {
 		c.remove(e)
@@ -411,34 +411,34 @@ func (c *cache) evict() {
 	}
 }
 
-func (c *cache) remove(e *entry) {
+func (c *Cache) remove(e *entry) {
 	evtRemove(e)
 	expRemove(e)
 	delete(c.items, e.key)
 }
 
-func (c *cache) evtBack() *entry {
+func (c *Cache) evtBack() *entry {
 	return c.evtRoot.evtPrev
 }
 
-func (c *cache) expBack() *entry {
+func (c *Cache) expBack() *entry {
 	return c.expRoot.expPrev
 }
 
-func (c *cache) evtPushFront(e *entry) {
+func (c *Cache) evtPushFront(e *entry) {
 	evtInsert(e, &c.evtRoot)
 }
 
-func (c *cache) expPushFront(e *entry) {
+func (c *Cache) expPushFront(e *entry) {
 	expInsert(e, &c.expRoot)
 }
 
-func (c *cache) evtMoveToFront(e *entry) {
+func (c *Cache) evtMoveToFront(e *entry) {
 	evtRemove(e)
 	evtInsert(e, &c.evtRoot)
 }
 
-func (c *cache) expMoveToFront(e *entry) {
+func (c *Cache) expMoveToFront(e *entry) {
 	expRemove(e)
 	expInsert(e, &c.expRoot)
 }
