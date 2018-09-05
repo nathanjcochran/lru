@@ -20,18 +20,7 @@ const (
 	Remove
 )
 
-type entry struct {
-	key              interface{}
-	val              interface{}
-	expiration       time.Time
-	evtNext, evtPrev *entry
-	expNext, expPrev *entry
-}
-
-func (e *entry) isExpired() bool {
-	return e.expiration.Before(time.Now())
-}
-
+// Callback is called when a cache entry is evicted or expires.
 type Callback func(key, value interface{})
 
 // UpdateFunc is called when a cache entry expires, and can return an
@@ -62,8 +51,17 @@ type Cache struct {
 
 var _ Interface = &Cache{}
 
-// TODO: Updates for different types of items in a single cache?
-//			Complicated because of race conditions re: update queue and update func
+type entry struct {
+	key              interface{}
+	val              interface{}
+	expiration       time.Time
+	evtNext, evtPrev *entry
+	expNext, expPrev *entry
+}
+
+func (e *entry) isExpired() bool {
+	return e.expiration.Before(time.Now())
+}
 
 type option func(c *Cache)
 
