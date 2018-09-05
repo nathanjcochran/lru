@@ -20,7 +20,8 @@ const (
 	Remove
 )
 
-// Callback is called when a cache entry is evicted or expires.
+// Callback is a function that is called for various purposes, such as when a
+// cache entry is evicted or expires, or when an internal buffer is full.
 type Callback func(key, value interface{})
 
 // UpdateFunc is called when a cache entry expires, and can return an
