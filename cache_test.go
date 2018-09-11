@@ -23,7 +23,7 @@ func expectExists(expected, actual bool, t *testing.T) {
 
 func expectValue(expected, actual interface{}, t *testing.T) {
 	if actual != expected {
-		t.Errorf("Expected value: %s. Actual: %s", expected, actual)
+		t.Errorf("Expected value: %v. Actual: %v", expected, actual)
 	}
 }
 
@@ -287,6 +287,13 @@ func TestExpiration(t *testing.T) {
 	expectValue(nil, val, t)
 }
 
+func TestUpdate(t *testing.T) {
+	numWorkers := []int{0, 1, 2}
+	for _, workers := range numWorkers {
+		testUpdate(workers, t)
+	}
+}
+
 func testUpdate(workers int, t *testing.T) {
 	expired, updateFunc := expectUpdate(t,
 		updateVal{"key1", "val4", lru.Update},
@@ -361,15 +368,139 @@ func testUpdate(workers int, t *testing.T) {
 	expectValue(nil, val, t)
 }
 
-func TestUpdate(t *testing.T) {
+func TestUpdateWithConcurrentRemove(t *testing.T) {
 	numWorkers := []int{0, 1, 2}
 	for _, workers := range numWorkers {
-		testUpdate(workers, t)
+		testUpdateWithConcurrentRemove(workers, t)
 	}
 }
 
-// TODO: Test Update with full buffer (OnBufferFull)
-// TODO: Test Update when entry has been removed, gotten, or added during interval
+func testUpdateWithConcurrentRemove(workers int, t *testing.T) {
+	updateFunc := func(key interface{}) (interface{}, lru.Status) {
+		time.Sleep(50 * time.Millisecond) // Updates take 50ms
+		return "val2", lru.Update
+	}
+	cache, err := lru.NewCache(
+		lru.SetWorkers(workers),
+		lru.SetTTL(50*time.Millisecond),       // Entries will expire after 50ms
+		lru.SetTTLMargin(10*time.Millisecond), // Entries can expire up to 10ms early (i.e. after 40ms)
+		lru.SetUpdateFunc(updateFunc),
+	)
+	if err != nil {
+		t.Fatalf("Error creating cache: %s", err)
+	}
+	defer cache.Stop()
+
+	eviction := cache.Add("key1", "val1")
+	expectAddEviction(false, eviction, t)
+
+	time.Sleep(75 * time.Millisecond)
+
+	val, ok := cache.Peek("key1")
+	expectExists(true, ok, t)
+	expectValue("val1", val, t)
+
+	ok = cache.Remove("key1")
+	expectExists(true, ok, t)
+
+	time.Sleep(50 * time.Millisecond)
+
+	keys := cache.Keys()
+	expectKeys([]interface{}{}, keys, t)
+
+	val, ok = cache.Peek("key1")
+	expectExists(false, ok, t)
+	expectValue(nil, val, t)
+}
+
+func TestUpdateWithConcurrentAdd(t *testing.T) {
+	numWorkers := []int{0, 1, 2}
+	for _, workers := range numWorkers {
+		testUpdateWithConcurrentAdd(workers, t)
+	}
+}
+
+func testUpdateWithConcurrentAdd(workers int, t *testing.T) {
+	updateFunc := func(key interface{}) (interface{}, lru.Status) {
+		time.Sleep(50 * time.Millisecond) // Updates take 50ms
+		return "val3", lru.Update
+	}
+	cache, err := lru.NewCache(
+		lru.SetWorkers(workers),
+		lru.SetTTL(50*time.Millisecond),       // Entries will expire after 50ms
+		lru.SetTTLMargin(10*time.Millisecond), // Entries can expire up to 10ms early (i.e. after 40ms)
+		lru.SetUpdateFunc(updateFunc),
+	)
+	if err != nil {
+		t.Fatalf("Error creating cache: %s", err)
+	}
+	defer cache.Stop()
+
+	eviction := cache.Add("key1", "val1")
+	expectAddEviction(false, eviction, t)
+
+	time.Sleep(75 * time.Millisecond)
+
+	val, ok := cache.Peek("key1")
+	expectExists(true, ok, t)
+	expectValue("val1", val, t)
+
+	eviction = cache.Add("key1", "val2")
+	expectAddEviction(false, eviction, t)
+
+	time.Sleep(50 * time.Millisecond)
+
+	keys := cache.Keys()
+	expectKeys([]interface{}{"key1"}, keys, t)
+
+	val, ok = cache.Peek("key1")
+	expectExists(true, ok, t)
+	expectValue("val3", val, t)
+}
+
+func TestUpdateWithFullBuffer(t *testing.T) {
+	updateFunc := func(key interface{}) (interface{}, lru.Status) {
+		time.Sleep(50 * time.Millisecond) // Updates take 50ms
+		return "val3", lru.Update
+	}
+	done := make(chan struct{})
+	onBufferFull := func(key, val interface{}) {
+		if key != "key3" {
+			t.Errorf("Expected key: %v. Actual: %v", "key3", key)
+		}
+		if val != "val3" {
+			t.Errorf("Expected val: %v. Actual: %v", "val3", key)
+		}
+		close(done)
+	}
+	cache, err := lru.NewCache(
+		lru.SetWorkers(1),
+		lru.SetTTL(50*time.Millisecond),       // Entries will expire after 50ms
+		lru.SetTTLMargin(10*time.Millisecond), // Entries can expire up to 10ms early (i.e. after 40ms)
+		lru.SetUpdateFunc(updateFunc),
+		lru.SetBufferSize(1),
+		lru.SetOnBufferFull(onBufferFull),
+	)
+	if err != nil {
+		t.Fatalf("Error creating cache: %s", err)
+	}
+	defer cache.Stop()
+
+	eviction := cache.Add("key1", "val1")
+	expectAddEviction(false, eviction, t)
+
+	eviction = cache.Add("key2", "val2")
+	expectAddEviction(false, eviction, t)
+
+	eviction = cache.Add("key3", "val3")
+	expectAddEviction(false, eviction, t)
+
+	select {
+	case <-done:
+	case <-time.After(75 * time.Millisecond):
+		t.Errorf("Expected onBufferFull to be called")
+	}
+}
 
 func TestGet(t *testing.T) {
 	cache, err := lru.NewCache()

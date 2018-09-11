@@ -22,7 +22,7 @@ const (
 
 // Callback is a function that is called for various purposes, such as when a
 // cache entry is evicted or expires, or when an internal buffer is full.
-type Callback func(key, value interface{})
+type Callback func(key, val interface{})
 
 // UpdateFunc is called when a cache entry expires, and can return an
 // updated version to replace the expired entry in the cache.
@@ -44,7 +44,7 @@ type Cache struct {
 	onExpire     Callback
 	onBufferFull Callback
 	update       UpdateFunc
-	lock         *sync.RWMutex // TODO: Does this need to be a pointer?
+	lock         sync.RWMutex
 	updateChan   chan interface{}
 	quitChan     chan struct{}
 	doneChan     chan struct{}
@@ -58,10 +58,6 @@ type entry struct {
 	expiration       time.Time
 	evtNext, evtPrev *entry
 	expNext, expPrev *entry
-}
-
-func (e *entry) isExpired() bool {
-	return e.expiration.Before(time.Now())
 }
 
 type option func(c *Cache)
@@ -126,7 +122,7 @@ func NewCache(options ...option) (*Cache, error) {
 		ttl:       DefaultTTL,
 		ttlMargin: DefaultTTLMargin,
 		items:     map[interface{}]*entry{},
-		lock:      &sync.RWMutex{},
+		lock:      sync.RWMutex{},
 		quitChan:  make(chan struct{}),
 	}
 	c.evtRoot.evtNext = &c.evtRoot
@@ -354,7 +350,11 @@ func (c *Cache) handleExpirations() time.Duration {
 			// Inform user that buffer is full via callback, then
 			// go back to blocking on send
 			c.onBufferFull(e.key, e.val)
-			c.updateChan <- e.key
+			select {
+			case c.updateChan <- e.key:
+			case <-c.quitChan: // To prevent deadlock if buffer is full but workers have been stopped
+				return c.ttl
+			}
 		}
 	}
 }
