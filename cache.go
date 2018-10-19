@@ -7,9 +7,10 @@ import (
 )
 
 const (
-	DefaultSize      = 128
-	DefaultTTL       = time.Hour
-	DefaultTTLMargin = time.Second
+	DefaultSize            = 128
+	DefaultTTL             = time.Hour
+	DefaultTTLMargin       = time.Second
+	DefaultUpdateThreshold = 0
 )
 
 type Status int8
@@ -32,22 +33,23 @@ type UpdateFunc func(key interface{}) (newVal interface{}, status Status)
 // that checks for expired items and queues updates, which are processed
 // out-of-band via separate worker goroutines.
 type Cache struct {
-	size         int
-	ttl          time.Duration
-	ttlMargin    time.Duration
-	workers      int
-	bufSize      int
-	items        map[interface{}]*entry
-	evtRoot      entry
-	expRoot      entry
-	onEvict      Callback
-	onExpire     Callback
-	onBufferFull Callback
-	update       UpdateFunc
-	lock         sync.RWMutex
-	updateChan   chan interface{}
-	quitChan     chan struct{}
-	doneChan     chan struct{}
+	size            int
+	ttl             time.Duration
+	ttlMargin       time.Duration
+	updateThreshold int
+	workers         int
+	bufSize         int
+	items           map[interface{}]*entry
+	evtRoot         entry
+	expRoot         entry
+	onEvict         Callback
+	onExpire        Callback
+	onBufferFull    Callback
+	update          UpdateFunc
+	lock            sync.RWMutex
+	updateChan      chan interface{}
+	quitChan        chan struct{}
+	doneChan        chan struct{}
 }
 
 var _ Interface = &Cache{}
@@ -55,6 +57,7 @@ var _ Interface = &Cache{}
 type entry struct {
 	key              interface{}
 	val              interface{}
+	hits             int
 	expiration       time.Time
 	evtNext, evtPrev *entry
 	expNext, expPrev *entry
@@ -77,6 +80,12 @@ func SetTTL(ttl time.Duration) option {
 func SetTTLMargin(ttlMargin time.Duration) option {
 	return func(c *Cache) {
 		c.ttlMargin = ttlMargin
+	}
+}
+
+func SetUpdateThreshold(hits int) option {
+	return func(c *Cache) {
+		c.updateThreshold = hits
 	}
 }
 
@@ -118,12 +127,13 @@ func SetUpdateFunc(update UpdateFunc) option {
 
 func NewCache(options ...option) (*Cache, error) {
 	c := &Cache{
-		size:      DefaultSize,
-		ttl:       DefaultTTL,
-		ttlMargin: DefaultTTLMargin,
-		items:     map[interface{}]*entry{},
-		lock:      sync.RWMutex{},
-		quitChan:  make(chan struct{}),
+		size:            DefaultSize,
+		ttl:             DefaultTTL,
+		ttlMargin:       DefaultTTLMargin,
+		updateThreshold: DefaultUpdateThreshold,
+		items:           map[interface{}]*entry{},
+		lock:            sync.RWMutex{},
+		quitChan:        make(chan struct{}),
 	}
 	c.evtRoot.evtNext = &c.evtRoot
 	c.evtRoot.evtPrev = &c.evtRoot
@@ -142,6 +152,9 @@ func NewCache(options ...option) (*Cache, error) {
 	}
 	if c.ttlMargin < 0 {
 		return nil, errors.New("Entries must have non-negative time to live margin")
+	}
+	if c.updateThreshold < 0 {
+		return nil, errors.New("Entries must have non-negative update hit threshold")
 	}
 	go c.expirationWorker()
 	if c.workers > 0 {
@@ -166,6 +179,7 @@ func (c *Cache) Add(key, val interface{}) (evicted bool) {
 	// Check for existing item
 	if e, ok := c.items[key]; ok {
 		e.val = val
+		e.hits = 0
 		e.expiration = time.Now().Add(c.ttl)
 		c.evtMoveToFront(e)
 		c.expMoveToFront(e)
@@ -176,6 +190,7 @@ func (c *Cache) Add(key, val interface{}) (evicted bool) {
 	e := &entry{
 		key:        key,
 		val:        val,
+		hits:       0,
 		expiration: time.Now().Add(c.ttl),
 	}
 	c.evtPushFront(e)
@@ -196,6 +211,7 @@ func (c *Cache) Get(key interface{}) (val interface{}, ok bool) {
 	defer c.lock.Unlock()
 
 	if e, ok := c.items[key]; ok {
+		e.hits++
 		c.evtMoveToFront(e)
 		return e.val, true
 	}
@@ -311,9 +327,10 @@ func (c *Cache) handleExpirations() time.Duration {
 			return wait
 		}
 
-		// If the user did not provide an update callback,
-		// then just remove the entry from the cache
-		if c.update == nil {
+		// If the user did not provide an update callback, or the entry's hit
+		// count does not cross the update threshold, then just remove the
+		// entry from the cache
+		if c.update == nil || e.hits < c.updateThreshold {
 			c.remove(e)
 			if c.onExpire != nil {
 				c.onExpire(e.key, e.val)
@@ -390,9 +407,11 @@ func (c *Cache) handleUpdate(key interface{}) {
 	switch status {
 	case Update:
 		e.val = newVal
+		e.hits = 0
 		e.expiration = time.Now().Add(c.ttl)
 		c.expMoveToFront(e)
 	case Pass:
+		e.hits = 0
 		e.expiration = time.Now().Add(c.ttl)
 		c.expMoveToFront(e)
 	case Remove:
