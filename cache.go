@@ -379,13 +379,7 @@ func (c *Cache) Purge() {
 	}
 
 	// Drain update chan
-	for {
-		select {
-		case <-c.updateChan:
-		default:
-			break
-		}
-	}
+	c.drainUpdates()
 
 	// Drop all items from evict and expiration lists
 	c.evtRoot.evtNext = &c.evtRoot
@@ -499,6 +493,16 @@ func (c *Cache) updateWorker() {
 			c.handleUpdate(key)
 		case <-c.quitChan:
 			c.doneChan <- struct{}{}
+			return
+		}
+	}
+}
+
+func (c *Cache) drainUpdates() {
+	for {
+		select {
+		case <-c.updateChan:
+		default:
 			return
 		}
 	}
