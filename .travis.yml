@@ -5,12 +5,15 @@ go:
   - master
 
 os:
-  - windows
   - linux
-  - osx
 
 env:
   - GO111MODULE=on
+
+before_install:
+  - go get github.com/mattn/goveralls
+script:
+  - $GOPATH/bin/goveralls -service=travis-ci
 
 script:
   - go test -v -race -cover ./...
