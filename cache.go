@@ -1,3 +1,9 @@
+/*
+A thread-safe, fixed-size, in-memory LRU cache that supports eviction,
+expiration, and out-of-band updates.
+
+For more information, see: https://github.com/nathanjcochran/lru.
+*/
 package lru
 
 import (
@@ -41,14 +47,15 @@ type UpdateFunc func(key interface{}) (newVal interface{}, status Status)
 // SetOnExpire, and SetOnBufferFull.
 type Callback func(key, val interface{})
 
-// Cache is a thread-safe fixed size LRU cache with a single worker goroutine
-// that checks for expired items. If an UpdateFunc is provided (see
-// SetUpdateFunc), updates are queued in a buffer (see SetBufferSize) and
-// processed out-of-band via separate worker goroutines (see SetWorkers). If
-// no UpdateFunc is provided, expired items are simply dropped from the cache
-// (in which case, SetBufferSize and SetWorkers have no effect). Updates are
-// not performed if the expired entry has fewer than a threshold number of
-// hits since the last update (see SetUpdateThreshold).
+// Cache is a thread-safe fixed-size LRU cache with a single worker goroutine
+// that checks for expired items (see SetTTL and SetTTLMargin). If an
+// UpdateFunc is provided (see SetUpdateFunc), updates are queued in a buffer
+// (see SetBufferSize) and processed out-of-band via separate worker
+// goroutines (see SetWorkers). If no UpdateFunc is provided, expired items
+// are simply dropped from the cache (in which case, SetBufferSize and
+// SetWorkers have no effect). Updates are not performed if the expired entry
+// has fewer than a threshold number of hits since the last update (see
+// SetUpdateThreshold).
 type Cache struct {
 	size            int
 	ttl             time.Duration
@@ -393,7 +400,7 @@ func (c *Cache) Purge() {
 // Purge).
 func (c *Cache) Stop() {
 	close(c.quitChan)
-	for i := 0; i < c.workers+1; i++ {
+	for i := 0; i < c.workers+1; i++ { // +1 for expiration worker
 		<-c.doneChan
 	}
 	if c.workers > 0 {
@@ -498,16 +505,6 @@ func (c *Cache) updateWorker() {
 	}
 }
 
-func (c *Cache) drainUpdates() {
-	for {
-		select {
-		case <-c.updateChan:
-		default:
-			return
-		}
-	}
-}
-
 func (c *Cache) handleUpdate(key interface{}) {
 	// Call user-provided update function:
 	newVal, status := c.update(key)
@@ -536,6 +533,16 @@ func (c *Cache) handleUpdate(key interface{}) {
 		c.expMoveToFront(e)
 	case Remove:
 		c.remove(e)
+	}
+}
+
+func (c *Cache) drainUpdates() {
+	for {
+		select {
+		case <-c.updateChan:
+		default:
+			return
+		}
 	}
 }
 
